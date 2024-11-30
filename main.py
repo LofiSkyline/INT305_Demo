@@ -59,8 +59,12 @@ def train(args, model, device, train_loader, optimizer, epoch):
                 100. * batch_idx / len(train_loader), loss.item()))
             if args.dry_run:
                 break
-    plt.imshow(pic.cpu(), cmap='gray')
-    plt.show()
+        if pic is not None:
+            plt.imshow(pic.cpu(), cmap='gray')
+            plt.show
+        else:
+            print("Warning: 'pic' is None. Skipping visualization.")
+
 
 
 def test(model, device, test_loader):
