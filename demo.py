@@ -80,6 +80,11 @@ def train(args, model, device, train_loader, optimizer, epoch):# 定义每个epo
                 100. * batch_idx / len(train_loader), loss.item()))
             if args.dry_run:
                 break
+        if pic is not None:
+            plt.imshow(pic.cpu(), cmap='gray')
+            plt.show
+        else:
+            print("Warning: 'pic' is None. Skipping visualization.")
 
     train_accs.append(100 * accuracy/total)    
     plt.imshow(pic.cpu(), cmap='gray')

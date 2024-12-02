@@ -85,6 +85,26 @@ def test(model, device, test_loader):
         test_loss, correct, len(test_loader.dataset),
         100. * correct / len(test_loader.dataset)))
 
+def compute_mean_std(dataset):
+    """
+    计算数据集的均值和标准差
+    """
+    data_loader = torch.utils.data.DataLoader(dataset, batch_size=64, shuffle=False)
+    mean = 0.0
+    std = 0.0
+    total_samples = 0
+
+    for data, _ in data_loader:
+        # 数据是 [batch_size, channels, height, width]
+        batch_samples = data.size(0)  # 当前 batch 的样本数
+        total_samples += batch_samples
+        data = data.view(batch_samples, -1)  # 展平为 [batch_size, num_pixels]
+        mean += data.mean(1).sum().item()  # 按像素求均值，再求总和
+        std += data.std(1).sum().item()  # 按像素求标准差，再求总和
+
+    mean /= total_samples
+    std /= total_samples
+    return mean, std
 
 def main():
     # Training settings
@@ -93,10 +113,10 @@ def main():
                         help='input batch size for training (default: 64)')
     parser.add_argument('--test-batch-size', type=int, default=1000, metavar='N',
                         help='input batch size for testing (default: 1000)')
-    parser.add_argument('--epochs', type=int, default=14, metavar='N',
-                        help='number of epochs to train (default: 14)')
-    parser.add_argument('--lr', type=float, default=1.0, metavar='LR',
-                        help='learning rate (default: 1.0)')
+    parser.add_argument('--epochs', type=int, default=10, metavar='N',
+                        help='number of epochs to train (default: 10)')
+    parser.add_argument('--lr', type=float, default=0.5, metavar='LR',
+                        help='learning rate (default: 0.5)')
     parser.add_argument('--gamma', type=float, default=0.7, metavar='M',
                         help='Learning rate step gamma (default: 0.7)')
     parser.add_argument('--no-cuda', action='store_true', default=False,
@@ -127,10 +147,18 @@ def main():
         train_kwargs.update(cuda_kwargs)
         test_kwargs.update(cuda_kwargs)
 
+    # 加载 MNIST 数据集（用于计算均值和标准差）
+    raw_transform = transforms.Compose([transforms.ToTensor()])
+    raw_dataset = datasets.MNIST('./data', train=True, download=True, transform=raw_transform)
+
+    # 计算均值和标准差
+
+    mean, std = compute_mean_std(raw_dataset)
+    print(f"Computed Mean: {mean}, Computed Std: {std}")
     # Normalize the input (black and white image)
     transform=transforms.Compose([
         transforms.ToTensor(),
-        transforms.Normalize((0.1307,), (0.3081,))
+        transforms.Normalize((mean,), (std,))
         ])
 
     # Make train dataset split
