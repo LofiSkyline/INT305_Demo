@@ -7,44 +7,95 @@ import torch.optim as optim
 from torchvision import datasets, transforms
 from torch.optim.lr_scheduler import StepLR
 import matplotlib.pyplot as plt
+import time
 
 
-# Adjust the model to get a higher performance
+
+# # Adjust the model to get a higher performance
+# class Net(nn.Module):
+#     def __init__(self):
+#         super(Net, self).__init__()
+#         self.conv1 = nn.Conv2d(1, 8, 3, 1)
+#         self.bn1 = nn.BatchNorm2d(8)  # Batch Normalization
+#         self.conv2 = nn.Conv2d(8, 16, 3, 1)
+#         self.bn2 = nn.BatchNorm2d(16)
+#         self.dropout1 = nn.Dropout(0.25)
+#         self.dropout2 = nn.Dropout(0.5)
+#         self.fc1 = nn.Linear(2304, 64)
+#         self.fc2 = nn.Linear(64, 10)
+
+#     def forward(self, x):
+#         x = self.conv1(x)
+#         x = self.bn1(x)  # Apply Batch Normalization
+#         x = F.relu(x)
+#         x = self.conv2(x)
+#         x = self.bn2(x)
+#         x = F.relu(x)
+#         x = F.max_pool2d(x, 2)
+#         x = self.dropout1(x)
+#         x = torch.flatten(x, 1)
+#         x = self.fc1(x)
+#         x = F.relu(x)
+#         x = self.dropout2(x)
+#         x = self.fc2(x)
+#         return x
+
+
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 8, 3, 1)
-        self.bn1 = nn.BatchNorm2d(8)  # Batch Normalization
-        self.conv2 = nn.Conv2d(8, 16, 3, 1)
-        self.bn2 = nn.BatchNorm2d(16)
-        self.dropout1 = nn.Dropout(0.25)
-        self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(2304, 64)
-        self.fc2 = nn.Linear(64, 10)
+        
+
+        self.conv_block1 = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(3, stride=2),
+        )
+    
+    
+        self.conv_block2 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(3, stride=2),
+        )
+        
+          
+
+        self.fcs = nn.Sequential(
+            nn.Linear(2304, 1152),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(1152, 576),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(576, 10)
+        )
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)  # Apply Batch Normalization
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout2(x)
-        x = self.fc2(x)
+        x = self.conv_block1(x)
+        x = self.conv_block2(x)
+        x = x.reshape(x.shape[0], -1)
+        x = self.fcs(x)
         return x
 
-def train(args, model, device, train_loader, optimizer, epoch, train_loss_history):
+
+
+def train(args, model, device, train_loader, optimizer, epoch, train_loss_history, train_accuracy_history):
     model.train()
-    epoch_loss = 0  # 用于记录当前 epoch 的累计损失
-    total_batches = 0  # 用于记录当前 epoch 的 batch 数量
+    epoch_loss = 0  # Cumulative loss
+    total_batches = 0
+    correct = 0  # Total correct predictions
+    total_samples = 0  # Total samples processed
 
     for batch_idx, (data, target) in enumerate(train_loader):
-        # 模型训练部分
         data, target = data.to(device), target.to(device)
         optimizer.zero_grad()
         output = model(data)
@@ -52,11 +103,16 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_histor
         loss.backward()
         optimizer.step()
 
-        # 累加当前 batch 的损失
+        # Record loss
         epoch_loss += loss.item()
         total_batches += 1
 
-        # 打印日志
+        # Calculate accuracy for this batch
+        pred = output.argmax(dim=1, keepdim=True)  # Predictions
+        correct += pred.eq(target.view_as(pred)).sum().item()  # Correct predictions
+        total_samples += len(target)  # Total samples in this batch
+
+        # Log progress
         if batch_idx % args.log_interval == 0:
             print('Train Epoch: {} [{}/{} ({:.0f}%)]\tLoss: {:.6f}'.format(
                 epoch, batch_idx * len(data), len(train_loader.dataset),
@@ -64,75 +120,129 @@ def train(args, model, device, train_loader, optimizer, epoch, train_loss_histor
             if args.dry_run:
                 break
 
-    # 计算并记录当前 epoch 的平均损失
+    # Record average loss and accuracy for the epoch
     average_loss = epoch_loss / total_batches
+    accuracy = 100. * correct / total_samples
     train_loss_history.append(average_loss)
-    print(f"Epoch {epoch}: Average Training Loss = {average_loss:.4f}")
+    train_accuracy_history.append((epoch, accuracy))  # Record accuracy
+    print(f"Epoch {epoch}: Training Accuracy = {accuracy:.2f}%, Average Loss = {average_loss:.2f}")
 
 
-def visualize_images(data_loader):
-    pic = None  # 初始化拼接图片容器
-    row_images = None  # 每一行拼接的图片
-    col_count = 0  # 列计数器
-    row_count = 0  # 行计数器
+def visualize_misclassified_images(model, device, test_loader):
+    """
+    Visualize the first 50 misclassified test images along with their ground truth and predicted labels.
+    """
+    model.eval()  # Set model to evaluation mode
+    misclassified_images = []
+    ground_truth = []
+    predictions = []
 
-    for batch_idx, (data, target) in enumerate(data_loader):
-        # 拼接前 100 张图片
-        if row_count < 10:
-            for i in range(data.size(0)):  # 遍历当前批次所有图片
-                if col_count == 0:
-                    row_images = data[i, 0, :, :]  # 初始化当前行
-                else:
-                    row_images = torch.cat((row_images, data[i, 0, :, :]), dim=1)  # 横向拼接
-
-                col_count += 1
-                if col_count == 10:  # 一行拼接完成
-                    col_count = 0
-                    if pic is None:
-                        pic = row_images  # 初始化拼接的第一行
+    with torch.no_grad():  # Disable gradient calculations for evaluation
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            pred = output.argmax(dim=1, keepdim=True).squeeze()  # Get predictions
+            
+            # Collect misclassified samples
+            for i in range(len(data)):
+                if pred[i].item() != target[i].item():  # If prediction is wrong
+                    if len(misclassified_images) < 20:
+                        misclassified_images.append(data[i].cpu())  # Move image to CPU
+                        ground_truth.append(target[i].item())  # Add ground truth label
+                        predictions.append(pred[i].item())  # Add predicted label
                     else:
-                        pic = torch.cat((pic, row_images), dim=0)  # 垂直拼接到大图
-                    row_images = None  # 重置当前行
-                    row_count += 1
+                        break
+            if len(misclassified_images) >= 20:
+                break
 
-                if row_count == 10:  # 大图拼接完成
-                    break
-        if row_count == 10:  # 大图拼接完成
-            break
+    # Plot the images in a grid (e.g., 5x10)
+    num_images = len(misclassified_images)
+    rows = num_images // 10 + (1 if num_images % 10 != 0 else 0)  # Determine number of rows
+    fig, axes = plt.subplots(rows, 10, figsize=(15, 3 * rows))
+    axes = axes.flatten()
 
-    # 显示拼接的图片
-    if pic is not None:
-        plt.figure(figsize=(10, 10))
-        plt.imshow(pic.cpu(), cmap='gray')
-        plt.axis('off')  # 隐藏坐标轴
-        plt.show()
-    else:
-        print("Warning: No images were selected for visualization.")
+    for i, ax in enumerate(axes[:num_images]):
+        ax.imshow(misclassified_images[i].squeeze(), cmap='gray')  # Squeeze to remove extra dimensions
+        ax.set_title(f"GT: {ground_truth[i]}\nPred: {predictions[i]}")
+        ax.axis('off')
+
+    # Turn off unused axes
+    for ax in axes[num_images:]:
+        ax.axis('off')
+
+    plt.tight_layout()
+    plt.show()
 
 
 
-
-def test(model, device, test_loader, epoch, test_accuracy_history):
+def test(model, device, test_loader, epoch, test_accuracy_history, digit_accuracy_history):
+    """
+    Test the model and track accuracy for each digit (0-9).
+    """
     model.eval()
     test_loss = 0
     correct = 0
+    digit_correct = [0] * 10  # Correct predictions for each digit
+    digit_total = [0] * 10    # Total occurrences for each digit
+
     with torch.no_grad():
         for data, target in test_loader:
             data, target = data.to(device), target.to(device)
             output = model(data)
             test_loss += F.cross_entropy(output, target, reduction='sum').item()  # sum up batch loss
             pred = output.argmax(dim=1, keepdim=True)  # get the index of the max log-probability
+            
+            # Update total and correct counts for each digit
+            for i in range(10):
+                digit_mask = (target == i)  # Mask for current digit
+                digit_total[i] += digit_mask.sum().item()
+                digit_correct[i] += pred[digit_mask].eq(target[digit_mask].view_as(pred[digit_mask])).sum().item()
+
             correct += pred.eq(target.view_as(pred)).sum().item()
 
     test_loss /= len(test_loader.dataset)
     accuracy = 100. * correct / len(test_loader.dataset)
 
-    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.0f}%)\n'.format(
+    # Calculate accuracy for each digit
+    digit_accuracies = [
+        (100. * digit_correct[i] / digit_total[i]) if digit_total[i] > 0 else 0.0
+        for i in range(10)
+    ]
+
+    print('\nTest set: Average loss: {:.4f}, Accuracy: {}/{} ({:.2f}%)\n'.format(
         test_loss, correct, len(test_loader.dataset),
         accuracy))
 
-    # 保存每个 epoch 的正确率和正确分类数量
+    for i, acc in enumerate(digit_accuracies):
+        print(f"Digit {i}: Accuracy: {acc:.2f}%")
+
+    # Save epoch-wise accuracy history
     test_accuracy_history.append((epoch, accuracy, correct))
+    digit_accuracy_history.append((epoch, digit_accuracies))  # Save accuracy for each digit
+
+import matplotlib.pyplot as plt
+
+def plot_digit_accuracies(digit_accuracy_history):
+    """
+    Plot line charts for each digit's accuracy over epochs.
+    """
+    epochs = [record[0] for record in digit_accuracy_history]
+    accuracies = [record[1] for record in digit_accuracy_history]
+
+    # Transpose the list of accuracies to group by digits
+    digit_accuracies = list(zip(*accuracies))
+
+    plt.figure(figsize=(12, 8))
+    for digit, acc in enumerate(digit_accuracies):
+        plt.plot(epochs, acc, label=f"Digit {digit}", marker='o')
+
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy (%)")
+    plt.title("Accuracy of Each Digit Over Epochs")
+    plt.legend(title="Digits", loc="best")
+    plt.grid(True)
+    plt.tight_layout()
+    plt.show()
 
 
 def compute_mean_std(dataset):
@@ -181,31 +291,99 @@ def plot_loss(train_loss_history):
     fig.show()
 
 
-def plot_accuracy(test_accuracy_history):
-    # 绘制测试正确率折线图
-    epochs = [x[0] for x in test_accuracy_history]
-    accuracies = [x[1] for x in test_accuracy_history]
-    correct_counts = [x[2] for x in test_accuracy_history]
+import plotly.graph_objects as go
+
+
+def plot_accuracy(train_accuracy_history, test_accuracy_history):
+    """
+    Plot the training and testing accuracy over epochs on the same graph.
+    """
+    # Extract epoch and accuracy for training
+    train_epochs = [x[0] for x in train_accuracy_history]
+    train_accuracies = [x[1] for x in train_accuracy_history]
+
+    # Extract epoch and accuracy for testing
+    test_epochs = [x[0] for x in test_accuracy_history]
+    test_accuracies = [x[1] for x in test_accuracy_history]
 
     fig = go.Figure()
+
+    # Add training accuracy line
     fig.add_trace(go.Scatter(
-        x=epochs,
-        y=accuracies,
+        x=train_epochs,
+        y=train_accuracies,
         mode='lines+markers',
-        name='Accuracy',
+        name='Training Accuracy',
         hoverinfo='text',
-        text=[f'Epoch: {e}, Accuracy: {a:.2f}%, Correct: {c}' for e, a, c in zip(epochs, accuracies, correct_counts)]
+        text=[f'Epoch: {e}, Training Accuracy: {a:.2f}%' for e, a in zip(train_epochs, train_accuracies)]
     ))
+
+    # Add testing accuracy line
+    fig.add_trace(go.Scatter(
+        x=test_epochs,
+        y=test_accuracies,
+        mode='lines+markers',
+        name='Testing Accuracy',
+        hoverinfo='text',
+        text=[f'Epoch: {e}, Testing Accuracy: {a:.2f}%' for e, a in zip(test_epochs, test_accuracies)]
+    ))
+
+    # Update layout
     fig.update_layout(
-        title='Test Accuracy Over Epochs',
+        title='Training and Testing Accuracy Over Epochs',
         xaxis_title='Epoch',
         yaxis_title='Accuracy (%)',
-        template='plotly_white'
+        template='plotly_white',
+        legend_title="Legend"
     )
+
     fig.show()
 
 
+import numpy as np
+
+def test_with_confusion_matrix(model, device, test_loader):
+    """
+    Test the model and return predictions and true labels for the confusion matrix.
+    """
+    model.eval()
+    all_preds = []
+    all_targets = []
+
+    with torch.no_grad():
+        for data, target in test_loader:
+            data, target = data.to(device), target.to(device)
+            output = model(data)
+            pred = output.argmax(dim=1, keepdim=False)  # Get predictions
+            all_preds.extend(pred.cpu().numpy())  # Store predictions
+            all_targets.extend(target.cpu().numpy())  # Store true labels
+
+    return np.array(all_preds), np.array(all_targets)
+
+from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+import matplotlib.pyplot as plt
+
+def plot_confusion_matrix(preds, targets, class_names):
+    """
+    Generate and display a confusion matrix.
+    """
+    # Compute confusion matrix
+    cm = confusion_matrix(targets, preds, labels=range(len(class_names)))
+
+    # Display confusion matrix as a heatmap
+    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=class_names)
+    plt.figure(figsize=(10, 8))
+    disp.plot(cmap="viridis", values_format='d')
+    plt.title("Confusion Matrix")
+    plt.show()
+
+
+
 def main():
+    train_accuracy_history = []  # Track epoch-wise training accuracy
+
+    digit_accuracy_history = []
+
     # Training settings
     parser = argparse.ArgumentParser(description='PyTorch MNIST Example')
     parser.add_argument('--batch-size', type=int, default=64, metavar='N',
@@ -277,27 +455,41 @@ def main():
     # Initialize history tracking
     train_loss_history = []  # Track batch-wise training loss
     test_accuracy_history = []  # Track epoch-wise test accuracy
-
+    class_names = [str(i) for i in range(10)]
+    total_training_time = 0  # Variable to track total training time
     # Training and testing loop
     for epoch in range(1, args.epochs + 1):
         print(f"\nEpoch {epoch}/{args.epochs}")
-        train(args, model, device, train_loader, optimizer, epoch, train_loss_history)
-        
-        if args.visualize:
-            visualize_images(train_loader)  # Visualize images (if enabled)
-        
-        test(model, device, test_loader, epoch, test_accuracy_history)  # Test the model
+        start_time = time.time()  # Start timing
+        train(args, model, device, train_loader, optimizer, epoch, train_loss_history, train_accuracy_history)
+        end_time = time.time()  # End timing
+        epoch_training_time = end_time - start_time  # Calculate epoch time
+        total_training_time += epoch_training_time  # Accumulate total training time
+        test(model, device, test_loader, epoch, test_accuracy_history, digit_accuracy_history)  # Test the model
         scheduler.step()  # Adjust learning rate
+    # # Generate confusion matrix after all epochs
+    # preds, targets = test_with_confusion_matrix(model, device, test_loader)
+    # plot_confusion_matrix(preds, targets, class_names)
+    # After training and testing
+    plot_digit_accuracies(digit_accuracy_history)
+
+
+    # print("\nVisualizing Misclassified Images...")
+    # visualize_misclassified_images(model, device, test_loader)
+        # Calculate average training time per epoch
+    average_training_time = total_training_time / args.epochs
+    print(f"\nTotal Training Time: {total_training_time:.2f} seconds")
+    print(f"Average Training Time per Epoch: {average_training_time:.2f} seconds")
 
     # Plot results
     plot_loss(train_loss_history)
-    plot_accuracy(test_accuracy_history)  # Plot test accuracy
+    plot_accuracy(train_accuracy_history, test_accuracy_history)
+ # Plot test accuracy
 
     # Save the model (if enabled)
     if args.save_model:
         torch.save(model.state_dict(), "mnist_cnn.pt")
         print("Model saved to mnist_cnn.pt")
-
 
 
 if __name__ == '__main__':
