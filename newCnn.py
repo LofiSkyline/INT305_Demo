@@ -16,31 +16,47 @@ import os
 class Net(nn.Module):
     def __init__(self):
         super(Net, self).__init__()
-        self.conv1 = nn.Conv2d(1, 8, 3, 1)
-        self.bn1 = nn.BatchNorm2d(8)  # Batch Normalization
-        self.conv2 = nn.Conv2d(8, 16, 3, 1)
-        self.bn2 = nn.BatchNorm2d(16)
-        self.dropout1 = nn.Dropout(0.25)
-        self.dropout2 = nn.Dropout(0.5)
-        self.fc1 = nn.Linear(2304, 64)
-        self.fc2 = nn.Linear(64, 10)
+        
+
+        self.conv_block1 = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 32, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(32),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(3, stride=2),
+        )
+    
+    
+        self.conv_block2 = nn.Sequential(
+            nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(64, 64, kernel_size=3, stride=1, padding=1),
+            nn.BatchNorm2d(64),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(3, stride=2),
+        )
+        
+          
+
+        self.fcs = nn.Sequential(
+            nn.Linear(2304, 1152),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(1152, 576),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.5),
+            nn.Linear(576, 10)
+        )
 
     def forward(self, x):
-        x = self.conv1(x)
-        x = self.bn1(x)  # Apply Batch Normalization
-        x = F.relu(x)
-        x = self.conv2(x)
-        x = self.bn2(x)
-        x = F.relu(x)
-        x = F.max_pool2d(x, 2)
-        x = self.dropout1(x)
-        x = torch.flatten(x, 1)
-        x = self.fc1(x)
-        x = F.relu(x)
-        x = self.dropout2(x)
-        x = self.fc2(x)
+        x = self.conv_block1(x)
+        x = self.conv_block2(x)
+        x = x.reshape(x.shape[0], -1)
+        x = self.fcs(x)
         return x
-
 
 
 def train(args, model, device, train_loader, optimizer, epoch, train_loss_history, train_accuracy_history):
@@ -238,7 +254,7 @@ def main():
     scheduler = StepLR(optimizer, step_size=1, gamma=args.gamma)
 
     # Create a directory for logs if it doesn't exist
-    log_dir = "Log/old"
+    log_dir = "Log/new"
     os.makedirs(log_dir, exist_ok=True)  # Ensure the Log directory exists
     # Generate log file name based on current parameters
     log_file_name = f"trainbatch{args.batch_size}_lr{args.lr}_seed{args.seed}.csv"
@@ -272,7 +288,6 @@ def main():
         }
         write_to_csv(log_file, log_data)
 
-
     average_training_time = total_training_time / args.epochs
     print(f"\nTotal Training Time: {total_training_time:.2f} seconds")
     print(f"Average Training Time per Epoch: {average_training_time:.2f} seconds")
@@ -289,8 +304,6 @@ def main():
         "epoch_time": average_training_time
     }
     write_to_csv(log_file, average_time_data)
-
-
 
 
 if __name__ == '__main__':
